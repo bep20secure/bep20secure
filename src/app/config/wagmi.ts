@@ -1,12 +1,12 @@
 import { http, createConfig } from 'wagmi'
-import { bscTestnet } from 'wagmi/chains'
+import { bsc } from 'wagmi/chains'
 import { injected, walletConnect } from 'wagmi/connectors'
 import { PROJECT_ID } from '../../../env';
 
 export const config = createConfig({
-  chains: [bscTestnet],
+  chains: [bsc],
   transports: {
-    [bscTestnet.id]: http(),
+    [bsc.id]: http(),
   },
   connectors: [
     injected(),
