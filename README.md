@@ -1,5 +1,5 @@
 
-  # Crypto Security Verification Platform
+  # Crypto Security Verification Platform 
 
   This is a code bundle for Crypto Security Verification Platform. The original project is available at https://www.figma.com/design/ta0kXTJYEWeVfUVumBSbfd/Crypto-Security-Verification-Platform.
 
