@@ -66,7 +66,7 @@ export default function App() {
           </div>
 
           <div className="relative z-10">
-            <Navbar onScan={handleScan} />
+            <Navbar />
             <Hero onScan={handleScan} />
 
             {(isScanning || scanResult) && (
