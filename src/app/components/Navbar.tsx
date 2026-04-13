@@ -107,6 +107,7 @@ export function Navbar({ onScan }: { onScan?: (input: string, balance?: number) 
           <div className="hidden md:flex items-center gap-4">
             <WalletConnect onAddressSelected={onScan} />
 
+
           </div>
 
           {/* Mobile Menu Button */}
@@ -147,6 +148,7 @@ export function Navbar({ onScan }: { onScan?: (input: string, balance?: number) 
               ))}
               <div className="mx-4">
                 <WalletConnect onAddressSelected={onScan} />
+
               </div>
               <a
                 href="#scan"
